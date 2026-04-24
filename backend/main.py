@@ -9,7 +9,21 @@ from typing import Set
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+app = FastAPI()
 
+# Add your GitHub Pages URL here
+origins = [
+    "http://localhost:5173",
+    "https://lalepragati.github.io", 
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def _float_env(name: str, default: float) -> float:
     value = os.getenv(name)
