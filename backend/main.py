@@ -12,19 +12,18 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI()
 
 # Add your GitHub Pages URL here
-origins = [
-    "http://localhost:5173",
+'''origins = [
+   "http://localhost:5173",
     "https://lalepragati.github.io", 
-]
+]'''
 
-app.add_middleware(
+''' app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
-
+)'''
 def _float_env(name: str, default: float) -> float:
     value = os.getenv(name)
     if value is None:
@@ -212,3 +211,10 @@ async def telemetry_ws(websocket: WebSocket):
         await manager.disconnect(websocket)
     except Exception:
         await manager.disconnect(websocket)
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    # Get the port from Render's environment, default to 8000 for local dev
+    port = int(os.environ.get("PORT", 8000))
+    # host must be 0.0.0.0 to be accessible externally
+    uvicorn.run(app, host="0.0.0.0", port=port)
