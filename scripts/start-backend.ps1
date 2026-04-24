@@ -16,7 +16,7 @@ if (-not (Test-Path $pythonExe)) {
 & $pythonExe -m pip install -r .\backend\requirements.txt
 
 if (-not $env:ALLOWED_ORIGINS) {
-  $env:ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+  $env:ALLOWED_ORIGINS = "https://Lalepragati.github.io,http://localhost:5173,http://127.0.0.1:5173"
 }
 
 if ($env:DEV_RELOAD -eq "1") {
