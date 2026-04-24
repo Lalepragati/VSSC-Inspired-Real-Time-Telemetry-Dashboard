@@ -27,12 +27,20 @@ const MILESTONE_RULES = [
   { id: "meco", label: "Main Engine Cutoff", condition: ({ fuel }) => fuel <= 5 },
 ];
 
-function resolveWsUrl() {
-  const envUrl = import.meta.env?.VITE_WS_URL;
-  if (envUrl) return envUrl;
-
+function resolveWsCandidates() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://127.0.0.1:8000/ws`;
+  const host = window.location.hostname;
+  const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+
+  const envUrl = import.meta.env?.VITE_WS_URL?.trim();
+  const localUrl = `${protocol}://127.0.0.1:8000/ws`;
+  const sameOriginUrl = `${protocol}://${window.location.host}/ws`;
+
+  const ordered = isLocalHost
+    ? [localUrl, envUrl, sameOriginUrl]
+    : [envUrl, sameOriginUrl, localUrl];
+
+  return ordered.filter((value, index, arr) => Boolean(value) && arr.indexOf(value) === index);
 }
 
 const Gauge = React.memo(function Gauge({ label, value, unit, percent, color }) {
@@ -65,6 +73,7 @@ export default function Dashboard() {
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
+  const wsCandidateIndexRef = useRef(0);
   const isMountedRef = useRef(true);
   const firedMilestonesRef = useRef(new Set());
 
@@ -146,9 +155,17 @@ export default function Dashboard() {
 
   useEffect(() => {
     isMountedRef.current = true;
-    const wsUrl = resolveWsUrl();
+    const wsCandidates = resolveWsCandidates();
+
+    if (wsCandidates.length === 0) {
+      setConnected(false);
+      return () => {
+        isMountedRef.current = false;
+      };
+    }
 
     const connect = () => {
+      const wsUrl = wsCandidates[wsCandidateIndexRef.current];
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -163,7 +180,15 @@ export default function Dashboard() {
 
         const attempt = reconnectAttemptsRef.current + 1;
         reconnectAttemptsRef.current = attempt;
+
+        if (wsCandidates.length > 1 && attempt % 2 === 0) {
+          wsCandidateIndexRef.current = (wsCandidateIndexRef.current + 1) % wsCandidates.length;
+        }
+
         const delay = Math.min(500 * 2 ** attempt, MAX_RECONNECT_DELAY_MS);
+        if (reconnectTimeoutRef.current) {
+          window.clearTimeout(reconnectTimeoutRef.current);
+        }
         reconnectTimeoutRef.current = window.setTimeout(connect, delay);
       };
 
