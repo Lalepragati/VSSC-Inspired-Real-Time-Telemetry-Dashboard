@@ -211,6 +211,16 @@ async def telemetry_ws(websocket: WebSocket):
         await manager.disconnect(websocket)
     except Exception:
         await manager.disconnect(websocket)
+# 1. Define all your routes FIRST
+@app.get("/")
+async def root():
+    return {
+        "message": "VSSC Telemetry API is operational",
+        "endpoints": ["/health", "/metrics", "/ws"],
+        "docs": "/docs"
+    }
+
+# 2. Start the server LAST
 if __name__ == "__main__":
     import uvicorn
     import os
