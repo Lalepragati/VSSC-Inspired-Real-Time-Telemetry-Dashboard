@@ -159,6 +159,45 @@ VITE_WS_URL=wss://your-hosted-backend-domain/ws
 
 Then restart frontend dev server.
 
+## Deploy Frontend on Render
+
+Backend is already deployed at:
+
+- https://vssc-inspired-real-time-telemetry.onrender.com
+
+Frontend is now configured to use this backend in production.
+
+### Option 1: Deploy with render.yaml (recommended)
+
+This repository now includes [render.yaml](render.yaml).
+
+Steps:
+
+1. Push latest code to GitHub.
+2. In Render dashboard, click New + and select Blueprint.
+3. Connect this repository.
+4. Render will detect [render.yaml](render.yaml) and create static site service automatically.
+5. After deploy, open your frontend URL and verify WS status is CONNECTED.
+
+### Option 2: Manual Static Site setup on Render
+
+Create a Static Site in Render with:
+
+- Root Directory: frontend
+- Build Command: corepack pnpm install && corepack pnpm build
+- Publish Directory: dist
+- Environment Variable:
+  - VITE_WS_URL=wss://vssc-inspired-real-time-telemetry.onrender.com/ws
+
+### Why WS disconnect was happening in production
+
+- Production frontend sometimes attempted wrong WS targets (localhost/same-origin without WS server).
+- Now frontend prioritizes:
+  - VITE_WS_URL
+  - Render backend fallback URL
+  - same-origin WS fallback
+- Also added ws to wss normalization on HTTPS pages to avoid mixed-content WS blocking.
+
 ## Troubleshooting
 
 ### WS DISCONNECTED
@@ -166,6 +205,7 @@ Then restart frontend dev server.
 1. Confirm backend is running at port 8000.
 2. Check frontend env value:
    - frontend/.env -> VITE_WS_URL=ws://127.0.0.1:8000/ws (for local mode)
+  - frontend/.env.production -> VITE_WS_URL=wss://vssc-inspired-real-time-telemetry.onrender.com/ws (for Render production build)
 3. Ensure backend CORS includes localhost origins.
 4. Restart both backend and frontend terminals.
 5. Open browser DevTools Network tab and verify /ws handshake status.

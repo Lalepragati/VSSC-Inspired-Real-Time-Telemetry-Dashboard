@@ -17,6 +17,7 @@ const MAX_POINTS = 180;
 const DEFAULT_THRESHOLD = 120000;
 const MAX_RECONNECT_DELAY_MS = 5000;
 const MAX_TIMELINE_ITEMS = 12;
+const RENDER_BACKEND_WS_URL = "wss://vssc-inspired-real-time-telemetry.onrender.com/ws";
 
 const MILESTONE_RULES = [
   { id: "liftoff", label: "Liftoff", condition: ({ t }) => t >= 1 },
@@ -32,13 +33,33 @@ function resolveWsCandidates() {
   const host = window.location.hostname;
   const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
 
-  const envUrl = import.meta.env?.VITE_WS_URL?.trim();
+  const normalizeWsUrl = (raw) => {
+    if (!raw) return null;
+    let value = raw.trim();
+    if (!value) return null;
+
+    value = value.replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");
+
+    if (window.location.protocol === "https:" && value.startsWith("ws://")) {
+      const parsed = new URL(value);
+      const wsHost = parsed.hostname;
+      const wsIsLocal = wsHost === "localhost" || wsHost === "127.0.0.1" || wsHost === "::1";
+      if (!wsIsLocal) {
+        value = `wss://${value.slice(5)}`;
+      }
+    }
+
+    return value;
+  };
+
+  const envUrl = normalizeWsUrl(import.meta.env?.VITE_WS_URL);
   const localUrl = `${protocol}://127.0.0.1:8000/ws`;
   const sameOriginUrl = `${protocol}://${window.location.host}/ws`;
+  const renderUrl = normalizeWsUrl(RENDER_BACKEND_WS_URL);
 
   const ordered = isLocalHost
-    ? [localUrl, envUrl, sameOriginUrl]
-    : [envUrl, sameOriginUrl, localUrl];
+    ? [localUrl, envUrl, renderUrl]
+    : [envUrl, renderUrl, sameOriginUrl];
 
   return ordered.filter((value, index, arr) => Boolean(value) && arr.indexOf(value) === index);
 }

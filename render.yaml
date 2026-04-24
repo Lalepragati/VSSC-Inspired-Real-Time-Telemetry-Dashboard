@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: vssc-telemetry-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: corepack pnpm install && corepack pnpm build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_WS_URL
+        value: wss://vssc-inspired-real-time-telemetry.onrender.com/ws
