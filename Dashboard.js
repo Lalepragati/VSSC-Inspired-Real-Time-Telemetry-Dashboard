@@ -16,13 +16,61 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip,
 const MAX_POINTS = 180;
 const DEFAULT_THRESHOLD = 120000;
 const MAX_RECONNECT_DELAY_MS = 5000;
+const MAX_TIMELINE_ITEMS = 12;
+const RENDER_BACKEND_WS_URL = "wss://vssc-inspired-real-time-telemetry.onrender.com/ws";
 
-function resolveWsUrl() {
-  const envUrl = import.meta.env?.VITE_WS_URL;
-  if (envUrl) return envUrl;
+const MILESTONE_RULES = [
+  { id: "liftoff",     label: "Liftoff",               color: "emerald", condition: ({ t }) => t >= 1 },
+  { id: "max-q",       label: "Max Q Reached",          color: "amber",   condition: ({ t }) => t >= 30 },
+  { id: "stage-1-sep", label: "Stage 1 Separation",     color: "cyan",    condition: ({ altitude }) => altitude >= 15000 },
+  { id: "fairing-sep", label: "Fairing Separation",     color: "sky",     condition: ({ t }) => t >= 60 },
+  { id: "karman",      label: "Karman Line Crossed",    color: "violet",  condition: ({ altitude }) => altitude >= 100000 },
+  { id: "meco",        label: "Main Engine Cutoff",     color: "rose",    condition: ({ fuel }) => fuel <= 5 },
+];
 
+const MILESTONE_COLORS = {
+  emerald: { dot: "bg-emerald-400", glow: "shadow-[0_0_14px_rgba(74,222,128,0.95)]",  text: "text-emerald-300" },
+  amber:   { dot: "bg-amber-400",   glow: "shadow-[0_0_14px_rgba(251,191,36,0.95)]",  text: "text-amber-300"   },
+  cyan:    { dot: "bg-cyan-400",    glow: "shadow-[0_0_14px_rgba(34,211,238,0.95)]",  text: "text-cyan-300"    },
+  sky:     { dot: "bg-sky-400",     glow: "shadow-[0_0_14px_rgba(56,189,248,0.95)]",  text: "text-sky-300"     },
+  violet:  { dot: "bg-violet-400",  glow: "shadow-[0_0_14px_rgba(167,139,250,0.95)]", text: "text-violet-300"  },
+  rose:    { dot: "bg-rose-400",    glow: "shadow-[0_0_14px_rgba(251,113,133,0.95)]", text: "text-rose-300"    },
+};
+
+function resolveWsCandidates() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://127.0.0.1:8000/ws`;
+  const host = window.location.hostname;
+  const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+
+  const normalizeWsUrl = (raw) => {
+    if (!raw) return null;
+    let value = raw.trim();
+    if (!value) return null;
+
+    value = value.replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");
+
+    if (window.location.protocol === "https:" && value.startsWith("ws://")) {
+      const parsed = new URL(value);
+      const wsHost = parsed.hostname;
+      const wsIsLocal = wsHost === "localhost" || wsHost === "127.0.0.1" || wsHost === "::1";
+      if (!wsIsLocal) {
+        value = `wss://${value.slice(5)}`;
+      }
+    }
+
+    return value;
+  };
+
+  const envUrl = normalizeWsUrl(import.meta.env?.VITE_WS_URL);
+  const localUrl = `${protocol}://127.0.0.1:8000/ws`;
+  const sameOriginUrl = `${protocol}://${window.location.host}/ws`;
+  const renderUrl = normalizeWsUrl(RENDER_BACKEND_WS_URL);
+
+  const ordered = isLocalHost
+    ? [localUrl, envUrl, renderUrl]
+    : [envUrl, renderUrl, sameOriginUrl];
+
+  return ordered.filter((value, index, arr) => Boolean(value) && arr.indexOf(value) === index);
 }
 
 const Gauge = React.memo(function Gauge({ label, value, unit, percent, color }) {
@@ -41,19 +89,56 @@ const Gauge = React.memo(function Gauge({ label, value, unit, percent, color }) 
   );
 });
 
+const AttitudeReadout = React.memo(function AttitudeReadout({ label, value }) {
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-950/60 p-3">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">{label}</div>
+      <div className="mt-1 font-mono text-xl text-cyan-300">{value.toFixed(2)} deg</div>
+    </div>
+  );
+});
+
 export default function Dashboard() {
   const chartRef = useRef(null);
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
+  const wsCandidateIndexRef = useRef(0);
   const isMountedRef = useRef(true);
+  const firedMilestonesRef = useRef(new Set());
+  const sessionStartTRef = useRef(null);
 
   const [connected, setConnected] = useState(false);
   const [altitude, setAltitude] = useState(0);
   const [velocity, setVelocity] = useState(0);
   const [fuel, setFuel] = useState(100);
+  const [pitch, setPitch] = useState(0);
+  const [roll, setRoll] = useState(0);
+  const [yaw, setYaw] = useState(0);
   const [status, setStatus] = useState("NOMINAL");
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
+  const [timeline, setTimeline] = useState([
+    {
+      id: "init",
+      event: "Telemetry Link Initialized",
+      timestampLabel: new Date().toLocaleTimeString(),
+      missionTimeLabel: "T+0.0s",
+      color: "cyan",
+    },
+  ]);
+
+  const pushMilestone = (eventLabel, missionTime, color = "emerald") => {
+    setTimeline((prev) => {
+      const item = {
+        id: `${eventLabel}-${missionTime}`,
+        event: eventLabel,
+        timestampLabel: new Date().toLocaleTimeString(),
+        missionTimeLabel: `T+${missionTime.toFixed(1)}s`,
+        color,
+      };
+      return [item, ...prev].slice(0, MAX_TIMELINE_ITEMS);
+    });
+  };
 
   const chartData = useMemo(
     () => ({
@@ -102,15 +187,37 @@ export default function Dashboard() {
   );
 
   useEffect(() => {
-    const wsUrl = resolveWsUrl();
+    isMountedRef.current = true;
+    const wsCandidates = resolveWsCandidates();
+
+    if (wsCandidates.length === 0) {
+      setConnected(false);
+      return () => {
+        isMountedRef.current = false;
+      };
+    }
 
     const connect = () => {
+      const wsUrl = wsCandidates[wsCandidateIndexRef.current];
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         reconnectAttemptsRef.current = 0;
-        if (isMountedRef.current) setConnected(true);
+        firedMilestonesRef.current = new Set();
+        sessionStartTRef.current = null;
+        if (isMountedRef.current) {
+          setConnected(true);
+          setTimeline([
+            {
+              id: `init-${Date.now()}`,
+              event: "Telemetry Link Initialized",
+              timestampLabel: new Date().toLocaleTimeString(),
+              missionTimeLabel: "T+0.0s",
+              color: "cyan",
+            },
+          ]);
+        }
       };
 
       ws.onclose = () => {
@@ -119,7 +226,15 @@ export default function Dashboard() {
 
         const attempt = reconnectAttemptsRef.current + 1;
         reconnectAttemptsRef.current = attempt;
+
+        if (wsCandidates.length > 1 && attempt % 2 === 0) {
+          wsCandidateIndexRef.current = (wsCandidateIndexRef.current + 1) % wsCandidates.length;
+        }
+
         const delay = Math.min(500 * 2 ** attempt, MAX_RECONNECT_DELAY_MS);
+        if (reconnectTimeoutRef.current) {
+          window.clearTimeout(reconnectTimeoutRef.current);
+        }
         reconnectTimeoutRef.current = window.setTimeout(connect, delay);
       };
 
@@ -135,14 +250,57 @@ export default function Dashboard() {
           return;
         }
 
-        // Lightweight text/gauge state updates.
+        if (isMountedRef.current) {
+          setConnected(true);
+        }
+
         setAltitude(packet.altitude ?? 0);
         setVelocity(packet.velocity ?? 0);
         setFuel(packet.fuel ?? 0);
+        setPitch(packet.pitch ?? 0);
+        setRoll(packet.roll ?? 0);
+        setYaw(packet.yaw ?? 0);
         setStatus(packet.status ?? "NOMINAL");
         setThreshold(packet.max_threshold ?? DEFAULT_THRESHOLD);
 
-        // Mutate chart data directly for efficient 10Hz streaming.
+        const snapshot = {
+          t: Number(packet.t ?? 0),
+          altitude: Number(packet.altitude ?? 0),
+          fuel: Number(packet.fuel ?? 0),
+        };
+
+        // Record the rocket's mission time at the moment this browser session
+        // connected, then evaluate all time-based milestone conditions against
+        // the elapsed time since connection (relativeT) so they fire one by
+        // one even if the server has been running for a while before the page
+        // was opened.
+        if (sessionStartTRef.current === null) {
+          sessionStartTRef.current = snapshot.t;
+        }
+        const relativeSnapshot = {
+          t: snapshot.t - sessionStartTRef.current,
+          altitude: snapshot.altitude,
+          fuel: snapshot.fuel,
+        };
+
+        for (const rule of MILESTONE_RULES) {
+          if (firedMilestonesRef.current.has(rule.id)) {
+            continue;
+          }
+          if (rule.condition(relativeSnapshot)) {
+            firedMilestonesRef.current.add(rule.id);
+            pushMilestone(rule.label, snapshot.t, rule.color);
+          }
+        }
+
+        if (snapshot.altitude > (packet.max_threshold ?? DEFAULT_THRESHOLD)) {
+          const thresholdKey = "threshold-breach";
+          if (!firedMilestonesRef.current.has(thresholdKey)) {
+            firedMilestonesRef.current.add(thresholdKey);
+            pushMilestone("Safety Threshold Breach", snapshot.t, "rose");
+          }
+        }
+
         const chart = chartRef.current;
         if (!chart?.data?.datasets?.[0]) return;
 
@@ -177,6 +335,9 @@ export default function Dashboard() {
   const velocityPercent = Math.min(100, (Math.max(0, velocity) / 4000) * 100);
   const fuelPercent = Math.min(100, Math.max(0, fuel));
   const alert = altitude > threshold || status === "ALERT";
+  const cubeTransform = {
+    transform: `rotateX(${pitch}deg) rotateY(${yaw}deg) rotateZ(${roll}deg)`,
+  };
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#111827_0%,_#020617_55%,_#000000_100%)] p-4 text-slate-200 md:p-8">
@@ -204,21 +365,68 @@ export default function Dashboard() {
           </div>
         </header>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Gauge label="Velocity" value={velocity} unit="m/s" percent={velocityPercent} color="bg-cyan-400" />
-          <Gauge label="Fuel" value={fuel} unit="%" percent={fuelPercent} color="bg-amber-400" />
-          <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 shadow-lg">
-            <div className="mb-2 text-xs uppercase tracking-widest text-slate-400">Altitude</div>
-            <div className="font-mono text-3xl text-slate-100">{altitude.toFixed(1)} m</div>
-            <div className="mt-2 text-xs text-slate-400">Max Threshold: {threshold.toLocaleString()} m</div>
-          </div>
-        </section>
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+          <div className="xl:col-span-8">
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <Gauge label="Velocity" value={velocity} unit="m/s" percent={velocityPercent} color="bg-cyan-400" />
+              <Gauge label="Fuel" value={fuel} unit="%" percent={fuelPercent} color="bg-amber-400" />
+              <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 shadow-lg">
+                <div className="mb-2 text-xs uppercase tracking-widest text-slate-400">Altitude</div>
+                <div className="font-mono text-3xl text-slate-100">{altitude.toFixed(1)} m</div>
+                <div className="mt-2 text-xs text-slate-400">Max Threshold: {threshold.toLocaleString()} m</div>
+              </div>
+            </section>
 
-        <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/70 p-4 shadow-xl md:p-6">
-          <div className="mb-3 text-sm uppercase tracking-widest text-slate-400">Altitude Stream</div>
-          <div className="h-[360px]">
-            <Line ref={chartRef} data={chartData} options={chartOptions} />
+            <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/70 p-4 shadow-xl md:p-6">
+              <div className="mb-3 text-sm uppercase tracking-widest text-slate-400">Altitude Stream</div>
+              <div className="h-[360px]">
+                <Line ref={chartRef} data={chartData} options={chartOptions} />
+              </div>
+            </section>
+
+            <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/70 p-4 shadow-xl md:p-6">
+              <div className="mb-4 text-sm uppercase tracking-widest text-slate-400">Attitude and Orientation</div>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <AttitudeReadout label="Pitch" value={pitch} />
+                  <AttitudeReadout label="Yaw" value={yaw} />
+                  <AttitudeReadout label="Roll" value={roll} />
+                </div>
+
+                <div className="flex items-center justify-center rounded-xl border border-slate-700 bg-slate-950/60 py-5 [perspective:900px]">
+                  <div className="relative h-24 w-24 [transform-style:preserve-3d] transition-transform duration-150" style={cubeTransform}>
+                    <div className="absolute inset-0 border border-cyan-300/70 bg-cyan-500/15 [transform:translateZ(12px)]" />
+                    <div className="absolute inset-0 border border-blue-300/70 bg-blue-500/15 [transform:rotateY(180deg)_translateZ(12px)]" />
+                    <div className="absolute inset-0 border border-emerald-300/70 bg-emerald-500/15 [transform:rotateY(90deg)_translateZ(12px)]" />
+                    <div className="absolute inset-0 border border-rose-300/70 bg-rose-500/15 [transform:rotateY(-90deg)_translateZ(12px)]" />
+                    <div className="absolute inset-0 border border-amber-300/70 bg-amber-500/15 [transform:rotateX(90deg)_translateZ(12px)]" />
+                    <div className="absolute inset-0 border border-violet-300/70 bg-violet-500/15 [transform:rotateX(-90deg)_translateZ(12px)]" />
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
+
+          <aside className="xl:col-span-4">
+            <section className="h-full rounded-2xl border border-slate-700 bg-slate-900/70 p-4 shadow-xl md:p-6">
+              <div className="mb-4 text-sm uppercase tracking-widest text-slate-400">Mission Timeline</div>
+              <div className="space-y-3">
+                {timeline.map((item) => {
+                  const colors = MILESTONE_COLORS[item.color] ?? MILESTONE_COLORS.emerald;
+                  return (
+                    <div key={item.id} className="rounded-lg border border-slate-700/80 bg-slate-950/60 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className={`inline-block h-3 w-3 rounded-full ${colors.dot} ${colors.glow}`} />
+                        <span className="font-mono text-xs text-slate-400">{item.missionTimeLabel}</span>
+                      </div>
+                      <div className={`mt-2 text-sm font-semibold ${colors.text}`}>{item.event}</div>
+                      <div className="mt-1 text-xs text-slate-400">{item.timestampLabel}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </aside>
         </section>
       </div>
     </div>
