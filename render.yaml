@@ -6,7 +6,7 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: ALLOWED_ORIGINS
-        value: "*"
+        value: "https://vssc-telemetry-frontend.onrender.com"
 
   - type: web
     name: vssc-telemetry-frontend
