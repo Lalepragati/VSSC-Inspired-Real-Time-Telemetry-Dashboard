@@ -2,10 +2,11 @@ import asyncio
 import math
 import os
 import random
+import statistics
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
-from typing import Set
+from typing import Optional, Set
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,6 +58,56 @@ class Telemetry:
     yaw: float
     status: str
     max_threshold: float
+    anomaly_score: float
+    anomaly_flag: bool
+    predicted_apogee: Optional[float]
+
+
+class AnomalyDetector:
+    """Rolling Z-score anomaly detector for the telemetry stream.
+
+    Maintains a sliding window of recent altitude and velocity readings and
+    computes a normalised anomaly score in [0, 1] using the Z-score of the
+    current observation relative to the window statistics.  A score above
+    *ANOMALY_THRESHOLD* sets the anomaly_flag field.
+    """
+
+    WINDOW: int = 60           # number of ticks kept (~6 s at 10 Hz)
+    ANOMALY_THRESHOLD: float = 0.70  # normalised score that triggers the flag
+
+    def __init__(self) -> None:
+        self._alt_buf: list[float] = []
+        self._vel_buf: list[float] = []
+
+    def update(self, altitude: float, velocity: float) -> dict:
+        """Push new readings and return a dict with AI-derived fields."""
+        self._alt_buf.append(altitude)
+        self._vel_buf.append(velocity)
+
+        if len(self._alt_buf) > self.WINDOW:
+            self._alt_buf.pop(0)
+            self._vel_buf.pop(0)
+
+        anomaly_score = 0.0
+        if len(self._alt_buf) >= 10:
+            try:
+                alt_mean = statistics.mean(self._alt_buf)
+                alt_std = statistics.stdev(self._alt_buf)
+                if alt_std > 0.0:
+                    z = abs((altitude - alt_mean) / alt_std)
+                    anomaly_score = min(1.0, z / 3.0)
+            except statistics.StatisticsError:
+                pass
+
+        predicted_apogee: Optional[float] = None
+        if velocity > 0.0:
+            predicted_apogee = round(altitude + (velocity ** 2) / (2.0 * GRAVITY), 1)
+
+        return {
+            "anomaly_score": round(anomaly_score, 4),
+            "anomaly_flag": anomaly_score >= self.ANOMALY_THRESHOLD,
+            "predicted_apogee": predicted_apogee,
+        }
 
 
 class RocketSimulator:
@@ -67,6 +118,7 @@ class RocketSimulator:
         self.altitude = 0.0
         self.velocity = 0.0
         self.fuel = 100.0
+        self._ai = AnomalyDetector()
 
     def step(self, dt: float) -> Telemetry:
         powered = self.fuel > 0.0
@@ -96,6 +148,8 @@ class RocketSimulator:
 
         status = "ALERT" if self.altitude > MAX_ALTITUDE_THRESHOLD else "NOMINAL"
 
+        ai = self._ai.update(self.altitude, self.velocity)
+
         return Telemetry(
             timestamp=time.time(),
             t=round(self.t, 2),
@@ -107,6 +161,9 @@ class RocketSimulator:
             yaw=round(yaw, 2),
             status=status,
             max_threshold=MAX_ALTITUDE_THRESHOLD,
+            anomaly_score=ai["anomaly_score"],
+            anomaly_flag=ai["anomaly_flag"],
+            predicted_apogee=ai["predicted_apogee"],
         )
 
 
@@ -201,7 +258,25 @@ async def metrics() -> dict:
     }
 
 
-@app.websocket("/ws")
+@app.get("/ai/insights")
+async def ai_insights() -> dict:
+    """Return the latest AI-derived telemetry analytics snapshot."""
+    last = simulator.step(0.0)
+    return {
+        "anomaly_score": last.anomaly_score,
+        "anomaly_flag": last.anomaly_flag,
+        "predicted_apogee_m": last.predicted_apogee,
+        "current_altitude_m": last.altitude,
+        "current_velocity_ms": last.velocity,
+        "description": (
+            "anomaly_score is a normalised Z-score [0–1] computed from a "
+            "rolling window of altitude readings; values ≥ 0.70 set "
+            "anomaly_flag=true. predicted_apogee uses kinematic projection "
+            "(v²/2g + h) while the rocket is ascending."
+        ),
+    }
+
+
 async def telemetry_ws(websocket: WebSocket):
     await manager.connect(websocket)
     try:
@@ -211,12 +286,13 @@ async def telemetry_ws(websocket: WebSocket):
         await manager.disconnect(websocket)
     except Exception:
         await manager.disconnect(websocket)
-# 1. Define all your routes FIRST
+
+
 @app.get("/")
 async def root():
     return {
         "message": "VSSC Telemetry API is operational",
-        "endpoints": ["/health", "/metrics", "/ws"],
+        "endpoints": ["/health", "/metrics", "/ai/insights", "/ws"],
         "docs": "/docs"
     }
 
