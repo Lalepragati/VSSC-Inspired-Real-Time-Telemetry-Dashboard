@@ -20,13 +20,22 @@ const MAX_TIMELINE_ITEMS = 12;
 const RENDER_BACKEND_WS_URL = "wss://vssc-inspired-real-time-telemetry.onrender.com/ws";
 
 const MILESTONE_RULES = [
-  { id: "liftoff", label: "Liftoff", condition: ({ t }) => t >= 1 },
-  { id: "max-q", label: "Max Q Reached", condition: ({ t }) => t >= 30 },
-  { id: "stage-1-sep", label: "Stage 1 Separation", condition: ({ altitude }) => altitude >= 15000 },
-  { id: "fairing-sep", label: "Fairing Separation", condition: ({ t }) => t >= 60 },
-  { id: "karman", label: "Karman Line Crossed", condition: ({ altitude }) => altitude >= 100000 },
-  { id: "meco", label: "Main Engine Cutoff", condition: ({ fuel }) => fuel <= 5 },
+  { id: "liftoff",     label: "Liftoff",               color: "emerald", condition: ({ t }) => t >= 1 },
+  { id: "max-q",       label: "Max Q Reached",          color: "amber",   condition: ({ t }) => t >= 30 },
+  { id: "stage-1-sep", label: "Stage 1 Separation",     color: "cyan",    condition: ({ altitude }) => altitude >= 15000 },
+  { id: "fairing-sep", label: "Fairing Separation",     color: "sky",     condition: ({ t }) => t >= 60 },
+  { id: "karman",      label: "Karman Line Crossed",    color: "violet",  condition: ({ altitude }) => altitude >= 100000 },
+  { id: "meco",        label: "Main Engine Cutoff",     color: "rose",    condition: ({ fuel }) => fuel <= 5 },
 ];
+
+const MILESTONE_COLORS = {
+  emerald: { dot: "bg-emerald-400", glow: "shadow-[0_0_14px_rgba(74,222,128,0.95)]",  text: "text-emerald-300" },
+  amber:   { dot: "bg-amber-400",   glow: "shadow-[0_0_14px_rgba(251,191,36,0.95)]",  text: "text-amber-300"   },
+  cyan:    { dot: "bg-cyan-400",    glow: "shadow-[0_0_14px_rgba(34,211,238,0.95)]",  text: "text-cyan-300"    },
+  sky:     { dot: "bg-sky-400",     glow: "shadow-[0_0_14px_rgba(56,189,248,0.95)]",  text: "text-sky-300"     },
+  violet:  { dot: "bg-violet-400",  glow: "shadow-[0_0_14px_rgba(167,139,250,0.95)]", text: "text-violet-300"  },
+  rose:    { dot: "bg-rose-400",    glow: "shadow-[0_0_14px_rgba(251,113,133,0.95)]", text: "text-rose-300"    },
+};
 
 function resolveWsCandidates() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -97,6 +106,7 @@ export default function Dashboard() {
   const wsCandidateIndexRef = useRef(0);
   const isMountedRef = useRef(true);
   const firedMilestonesRef = useRef(new Set());
+  const sessionStartTRef = useRef(null);
 
   const [connected, setConnected] = useState(false);
   const [altitude, setAltitude] = useState(0);
@@ -113,16 +123,18 @@ export default function Dashboard() {
       event: "Telemetry Link Initialized",
       timestampLabel: new Date().toLocaleTimeString(),
       missionTimeLabel: "T+0.0s",
+      color: "cyan",
     },
   ]);
 
-  const pushMilestone = (eventLabel, missionTime) => {
+  const pushMilestone = (eventLabel, missionTime, color = "emerald") => {
     setTimeline((prev) => {
       const item = {
         id: `${eventLabel}-${missionTime}`,
         event: eventLabel,
         timestampLabel: new Date().toLocaleTimeString(),
         missionTimeLabel: `T+${missionTime.toFixed(1)}s`,
+        color,
       };
       return [item, ...prev].slice(0, MAX_TIMELINE_ITEMS);
     });
@@ -192,7 +204,20 @@ export default function Dashboard() {
 
       ws.onopen = () => {
         reconnectAttemptsRef.current = 0;
-        if (isMountedRef.current) setConnected(true);
+        firedMilestonesRef.current = new Set();
+        sessionStartTRef.current = null;
+        if (isMountedRef.current) {
+          setConnected(true);
+          setTimeline([
+            {
+              id: `init-${Date.now()}`,
+              event: "Telemetry Link Initialized",
+              timestampLabel: new Date().toLocaleTimeString(),
+              missionTimeLabel: "T+0.0s",
+              color: "cyan",
+            },
+          ]);
+        }
       };
 
       ws.onclose = () => {
@@ -244,13 +269,27 @@ export default function Dashboard() {
           fuel: Number(packet.fuel ?? 0),
         };
 
+        // Record the rocket's mission time at the moment this browser session
+        // connected, then evaluate all time-based milestone conditions against
+        // the elapsed time since connection (relativeT) so they fire one by
+        // one even if the server has been running for a while before the page
+        // was opened.
+        if (sessionStartTRef.current === null) {
+          sessionStartTRef.current = snapshot.t;
+        }
+        const relativeSnapshot = {
+          t: snapshot.t - sessionStartTRef.current,
+          altitude: snapshot.altitude,
+          fuel: snapshot.fuel,
+        };
+
         for (const rule of MILESTONE_RULES) {
           if (firedMilestonesRef.current.has(rule.id)) {
             continue;
           }
-          if (rule.condition(snapshot)) {
+          if (rule.condition(relativeSnapshot)) {
             firedMilestonesRef.current.add(rule.id);
-            pushMilestone(rule.label, snapshot.t);
+            pushMilestone(rule.label, snapshot.t, rule.color);
           }
         }
 
@@ -258,7 +297,7 @@ export default function Dashboard() {
           const thresholdKey = "threshold-breach";
           if (!firedMilestonesRef.current.has(thresholdKey)) {
             firedMilestonesRef.current.add(thresholdKey);
-            pushMilestone("Safety Threshold Breach", snapshot.t);
+            pushMilestone("Safety Threshold Breach", snapshot.t, "rose");
           }
         }
 
@@ -372,16 +411,19 @@ export default function Dashboard() {
             <section className="h-full rounded-2xl border border-slate-700 bg-slate-900/70 p-4 shadow-xl md:p-6">
               <div className="mb-4 text-sm uppercase tracking-widest text-slate-400">Mission Timeline</div>
               <div className="space-y-3">
-                {timeline.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-slate-700/80 bg-slate-950/60 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="inline-block h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_14px_rgba(74,222,128,0.95)]" />
-                      <span className="font-mono text-xs text-slate-400">{item.missionTimeLabel}</span>
+                {timeline.map((item) => {
+                  const colors = MILESTONE_COLORS[item.color] ?? MILESTONE_COLORS.emerald;
+                  return (
+                    <div key={item.id} className="rounded-lg border border-slate-700/80 bg-slate-950/60 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className={`inline-block h-3 w-3 rounded-full ${colors.dot} ${colors.glow}`} />
+                        <span className="font-mono text-xs text-slate-400">{item.missionTimeLabel}</span>
+                      </div>
+                      <div className={`mt-2 text-sm font-semibold ${colors.text}`}>{item.event}</div>
+                      <div className="mt-1 text-xs text-slate-400">{item.timestampLabel}</div>
                     </div>
-                    <div className="mt-2 text-sm font-semibold text-emerald-300">{item.event}</div>
-                    <div className="mt-1 text-xs text-slate-400">{item.timestampLabel}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           </aside>
