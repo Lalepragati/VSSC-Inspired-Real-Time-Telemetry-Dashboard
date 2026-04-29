@@ -15,7 +15,6 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip,
 const MAX_POINTS = 180;
 const DEFAULT_THRESHOLD = 120000;
 const MAX_RECONNECT_DELAY_MS = 5000;
-
 function resolveWsUrl() {
   const envUrl = import.meta.env?.VITE_WS_URL;
   if (envUrl) return envUrl;
