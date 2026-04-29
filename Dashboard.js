@@ -11,7 +11,6 @@ import {
 } from "chart.js";
 import { Line } from "react-chartjs-2";
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler, Legend);
-
 const MAX_POINTS = 180;
 const DEFAULT_THRESHOLD = 120000;
 const MAX_RECONNECT_DELAY_MS = 5000;
