@@ -17,7 +17,6 @@ def _float_env(name: str, default: float) -> float:
     except ValueError:
         return default
 
-
 def _origins_env(name: str, default: str) -> list[str]:
     value = os.getenv(name, default)
     return [origin.strip() for origin in value.split(",") if origin.strip()]
