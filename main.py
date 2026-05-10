@@ -8,7 +8,6 @@ from dataclasses import asdict, dataclass
 from typing import Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-
 def _float_env(name: str, default: float) -> float:
     value = os.getenv(name)
     if value is None:
