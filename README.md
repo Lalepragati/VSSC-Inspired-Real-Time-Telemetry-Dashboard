@@ -21,6 +21,19 @@ Mission-control style telemetry dashboard with a FastAPI backend and React front
 - Alert state when altitude crosses threshold
 - Mission timeline milestone events
 - Live pitch, yaw, roll attitude panel with 3D orientation cube
+- **AI Insights panel**: rolling Z-score anomaly detector + kinematic apogee predictor
+
+## AI Analytics
+
+This project includes lightweight AI-driven analytics computed entirely in the backend (no external ML libraries required — only Python's standard `statistics` module):
+
+| Feature | How it works |
+|---|---|
+| **Anomaly Score** | Rolling Z-score of the last 60 altitude readings (≈ 6 s at 10 Hz), normalised to [0, 1]. |
+| **Anomaly Flag** | Set to `true` when the anomaly score ≥ 0.70 (2.1 σ above the window mean). |
+| **Predicted Apogee** | Kinematic projection: `h + v² / (2g)` — the maximum altitude the rocket would reach if thrust cut off right now. |
+
+All three values are broadcast with every WebSocket tick and are also available via the REST endpoint `GET /ai/insights`.
 
 ## Project Structure
 
@@ -189,6 +202,30 @@ Create a Static Site in Render with:
 - Environment Variable:
   - VITE_WS_URL=wss://vssc-inspired-real-time-telemetry.onrender.com/ws
 
+## Deploy Frontend on Vercel
+
+> **Note:** The Python/WebSocket backend cannot run on Vercel (Vercel serverless does not support persistent WebSocket connections). The backend stays on Render; only the React frontend is deployed to Vercel.
+
+This repository includes [vercel.json](vercel.json) which configures the build automatically.
+
+### Steps
+
+1. Push this branch to GitHub.
+2. Go to [vercel.com/new](https://vercel.com/new) and import this repository.
+3. Vercel auto-detects the `vercel.json` — no framework preset changes needed.
+4. Add the following **Environment Variable** in the Vercel project settings:
+
+   | Name | Value |
+   |---|---|
+   | `VITE_WS_URL` | `wss://vssc-inspired-real-time-telemetry.onrender.com/ws` |
+
+5. Click **Deploy**. Vercel will run:
+   ```
+   cd frontend && npm install -g pnpm && pnpm install && pnpm build
+   ```
+   and serve `frontend/dist/` as a static site.
+6. After deploy, open your Vercel URL and verify **WS CONNECTED** appears in the header.
+
 ### Why WS disconnect was happening in production
 
 - Production frontend sometimes attempted wrong WS targets (localhost/same-origin without WS server).
@@ -223,4 +260,5 @@ Create a Static Site in Render with:
 
 - GET /health
 - GET /metrics
+- GET /ai/insights
 - WS /ws

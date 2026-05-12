@@ -117,6 +117,9 @@ export default function Dashboard() {
   const [yaw, setYaw] = useState(0);
   const [status, setStatus] = useState("NOMINAL");
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
+  const [anomalyScore, setAnomalyScore] = useState(0);
+  const [anomalyFlag, setAnomalyFlag] = useState(false);
+  const [predictedApogee, setPredictedApogee] = useState(null);
   const [timeline, setTimeline] = useState([
     {
       id: "init",
@@ -262,6 +265,9 @@ export default function Dashboard() {
         setYaw(packet.yaw ?? 0);
         setStatus(packet.status ?? "NOMINAL");
         setThreshold(packet.max_threshold ?? DEFAULT_THRESHOLD);
+        setAnomalyScore(packet.anomaly_score ?? 0);
+        setAnomalyFlag(packet.anomaly_flag ?? false);
+        setPredictedApogee(packet.predicted_apogee ?? null);
 
         const snapshot = {
           t: Number(packet.t ?? 0),
@@ -402,6 +408,39 @@ export default function Dashboard() {
                     <div className="absolute inset-0 border border-amber-300/70 bg-amber-500/15 [transform:rotateX(90deg)_translateZ(12px)]" />
                     <div className="absolute inset-0 border border-violet-300/70 bg-violet-500/15 [transform:rotateX(-90deg)_translateZ(12px)]" />
                   </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="mt-6 rounded-2xl border border-violet-700/60 bg-slate-900/70 p-4 shadow-xl md:p-6">
+              <div className="mb-4 flex items-center gap-2 text-sm uppercase tracking-widest text-violet-300">
+                <span>⬡</span>
+                <span>AI Insights</span>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="rounded-lg border border-slate-700 bg-slate-950/60 p-3">
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Anomaly Score</div>
+                  <div className="mt-1 font-mono text-xl text-violet-300">{(anomalyScore * 100).toFixed(1)}%</div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+                    <div
+                      className={`h-full transition-all duration-150 ${anomalyFlag ? "bg-rose-500" : "bg-violet-500"}`}
+                      style={{ width: `${Math.min(100, anomalyScore * 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-950/60 p-3">
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Predicted Apogee</div>
+                  <div className="mt-1 font-mono text-xl text-cyan-300">
+                    {predictedApogee !== null ? `${predictedApogee.toLocaleString()} m` : "—"}
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-500">kinematic v²/2g + h</div>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-950/60 p-3">
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Anomaly Flag</div>
+                  <div className={`mt-1 font-mono text-xl ${anomalyFlag ? "text-rose-400" : "text-emerald-400"}`}>
+                    {anomalyFlag ? "⚠ ANOMALY" : "✓ NORMAL"}
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-500">normalised score ≥ 0.70 triggers</div>
                 </div>
               </div>
             </section>
