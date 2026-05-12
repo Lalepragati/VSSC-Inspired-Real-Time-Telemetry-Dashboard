@@ -440,7 +440,7 @@ export default function Dashboard() {
                   <div className={`mt-1 font-mono text-xl ${anomalyFlag ? "text-rose-400" : "text-emerald-400"}`}>
                     {anomalyFlag ? "⚠ ANOMALY" : "✓ NORMAL"}
                   </div>
-                  <div className="mt-1 text-[10px] text-slate-500">Z-score ≥ 0.70 triggers</div>
+                  <div className="mt-1 text-[10px] text-slate-500">normalised score ≥ 0.70 triggers</div>
                 </div>
               </div>
             </section>
