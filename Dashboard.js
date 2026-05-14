@@ -22,7 +22,6 @@ function resolveWsUrl() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://127.0.0.1:8000/ws`;
 }
-
 const Gauge = React.memo(function Gauge({ label, value, unit, percent, color }) {
   return (
     <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 shadow-lg">
