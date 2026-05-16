@@ -70,7 +70,6 @@ export default function Dashboard() {
     }),
     []
   );
-
   const chartOptions = useMemo(
     () => ({
       responsive: true,
