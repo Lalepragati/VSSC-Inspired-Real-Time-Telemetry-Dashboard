@@ -37,7 +37,6 @@ const Gauge = React.memo(function Gauge({ label, value, unit, percent, color }) 
     </div>
   );
 });
-
 export default function Dashboard() {
   const chartRef = useRef(null);
   const wsRef = useRef(null);
