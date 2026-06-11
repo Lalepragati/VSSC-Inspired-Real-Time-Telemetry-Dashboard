@@ -1,7 +1,6 @@
 # VSSC-Inspired Real-Time Telemetry Dashboard
 
 Mission-control style telemetry dashboard with a FastAPI backend and React frontend.
-
 ## What Was Updated
 
 - Fixed frequent WS DISCONNECTED issues for local clones.
