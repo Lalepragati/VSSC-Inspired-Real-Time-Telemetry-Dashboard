@@ -82,7 +82,6 @@ class RocketSimulator:
         yaw = 2.4 * wobble * math.cos(self.t * 1.05) + random.uniform(-0.2, 0.2)
 
         status = "ALERT" if self.altitude > MAX_ALTITUDE_THRESHOLD else "NOMINAL"
-
         return Telemetry(
             timestamp=time.time(),
             t=round(self.t, 2),
