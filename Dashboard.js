@@ -17,7 +17,6 @@ const MAX_RECONNECT_DELAY_MS = 5000;
 function resolveWsUrl() {
   const envUrl = import.meta.env?.VITE_WS_URL;
   if (envUrl) return envUrl;
-
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://127.0.0.1:8000/ws`;
 }
