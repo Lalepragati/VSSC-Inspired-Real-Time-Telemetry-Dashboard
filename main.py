@@ -24,7 +24,6 @@ TICK_SECONDS = _float_env("TELEMETRY_TICK_SECONDS", 0.1)  # 10 Hz
 GRAVITY = 9.81
 MAX_ALTITUDE_THRESHOLD = _float_env("MAX_ALTITUDE_THRESHOLD", 120_000.0)  # meters
 ALLOWED_ORIGINS = _origins_env("ALLOWED_ORIGINS", "*")
-
 @dataclass
 class Telemetry:
     timestamp: float
