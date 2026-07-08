@@ -36,7 +36,6 @@ class Telemetry:
     yaw: float
     status: str
     max_threshold: float
-
 class RocketSimulator:
     """Simple staged flight model with thrust, drag, coast, and descent."""
 
